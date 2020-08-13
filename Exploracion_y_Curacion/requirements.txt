@@ -1,0 +1,7 @@
+pandas>=0.21
+nltk>=3.5
+unidecode>=1.1.1
+swifter>=1.0.3
+plotly>=4.9.0
+cufflinks
+numpy>=1.5.1

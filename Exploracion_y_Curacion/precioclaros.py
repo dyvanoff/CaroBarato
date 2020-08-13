@@ -2,10 +2,6 @@
 import numpy as np
 import pandas as pd
 from io import StringIO
-# Puede que nos sirvan también
-import matplotlib as mpl
-mpl.get_cachedir()
-import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 import sys
@@ -79,7 +75,7 @@ def update_var_depurada(row,data):
 
 # Realizamos la conversión de las UM a UM homogeneas.
 # estandar= ('kg', 'un','lt', 'mt' ,'pack')
-def homogenea (cantidad,unidad):
+def homogenea (cantidad: float,unidad: str):
     if unidad in ('un', 'mt', 'kg', 'lt'):
         return round (1/cantidad, 3), unidad
     elif unidad in ('pack'):
@@ -131,10 +127,9 @@ def carga_productos():
 	fproductos = pd.read_csv(producto_url)
 
 	fproductos.set_index('id')
-	fproductos[fproductos.index.duplicated()]
 
 	#se saca la marca del nombre
-	fproductos["nombre"] = fproductos.apply(lambda x: replace_substring(x), axis=1)
+	#fproductos["nombre"] = fproductos.apply(lambda x: replace_substring(x), axis=1)
 
 	#Convertimos a minusculas las letras que estan en presentacion y generamos una nueva columna presentacion_depurada
 	fproductos['presentacion_depurada'] = fproductos['presentacion'].str.lower()
@@ -170,7 +165,7 @@ def carga_productos():
 	fproductos.loc[fproductos['nombre'].str.contains('\\b3x2\\b|\\b2x1\\b|\\b4x3\\b|\\bPaga\\b|\\bLleva\\b|\\bpack\\b', na=False),'um_depurada']='pack'
 
 	# Creamos dos nuevas columnas denominadas um_homogenea y factor_homogenea
-	fproductos[['factor_homogenea','um_homogenea']] = fproductos.swifter.apply(lambda x: homogenea(float(x['cantidad_depurada']),x['um_depurada']),axis=1, result_type='expand')
+	fproductos[['factor_homogenea','um_homogenea']] = fproductos.swifter.apply(lambda x: homogenea(float(x['cantidad_depurada']),str(x['um_depurada'])),axis=1, result_type='expand')
 
 	# Creamos variables Dummies que identifiquen el tipo de Unidad de Medida
 	fproductos=pd.get_dummies(fproductos, columns=['um_homogenea'])
@@ -180,9 +175,9 @@ def carga_productos():
 	fproductos['nombre_depurado']=fproductos.nombre_depurado.str.replace(repl='',pat=(delete_words))	
 
 	word_count = {}
-	fproductos['nombre_depurado'].apply(word_tokenize).apply(lambda x: count_word(x))
+	fproductos['nombre_depurado'].apply(word_tokenize).apply(lambda x: count_word(str(x))
 
-	df=pd.DataFrame(data=[word_count.keys(), word_count.values()], )
+	df=pd.DataFrame(data=[word_count.keys(), word_count.values()])
 	df=df.T
 	df.columns=['token', 'count']
 	df=df.sort_values('count', ascending=False).reset_index(drop=True)
@@ -198,7 +193,7 @@ def carga_productos():
 	lista_frecuente = df.token[0:indice]
 	lista_dummies=[None]*len(lista_frecuente)
 	for i in range(len(lista_frecuente)):
-    	lista_dummies[i]='dummy_'+ lista_frecuente[i];
+		lista_dummies[i]='dummy_'+ lista_frecuente[i]
 
 	# Creamos las dummies para todos los productos frecuentes.
 	for i in lista_frecuente:
@@ -451,9 +446,8 @@ def main():
 	print("Total filas Finales", datasetNew.shape)
 
 	#Guardar dataset en archivo
-    guardarArchivo(datasetNew)
+	guardarArchivo(datasetNew)
 
 if __name__ == "__main__":
     main()
 
-print("Guru99")
