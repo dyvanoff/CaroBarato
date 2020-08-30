@@ -11,11 +11,12 @@ import nltk
 #nltk.download('punkt')
 import re
 from collections import Counter
+import pip
 
 #if 'swifter' not in sys.modules:
-#        !pip install -q swifter
+#    pip install swifter
         
-import swifter
+#import swifter
 import chardet
 import requests
 import logging
@@ -24,6 +25,19 @@ logging.basicConfig(level = logging.DEBUG,
                     handlers=[logging.FileHandler('divide.log'), 
                                logging.StreamHandler()])
 logger = logging.getLogger(__name__)
+
+def install_and_import(package):
+    import importlib
+    try:
+        importlib.import_module(package)
+    except ImportError:
+        import pip
+        pip.main(['install', package])
+    finally:
+        globals()[package] = importlib.import_module(package)
+
+
+#install_and_import('swifter')        
 
 pd.set_option('display.max_columns', 150)
 pd.set_option('display.max_rows', 150)
@@ -177,8 +191,11 @@ def carga_productos():
 	#Asginamos la unidad de medida pack a las promociones y a los que en el nombre tiene las palabras pack, Paga o Lleva
 	fproductos.loc[fproductos['nombre'].str.contains('\\b3x2\\b|\\b2x1\\b|\\b4x3\\b|\\bPaga\\b|\\bLleva\\b|\\bpack\\b', na=False),'um_depurada']='pack'
 
+	fproductos['cantidad_depurada'] = fproductos['cantidad_depurada'].astype(float)
+	fproductos['um_depurada'] = fproductos['um_depurada'].astype(str)
+    
 	# Creamos dos nuevas columnas denominadas um_homogenea y factor_homogenea
-	fproductos[['factor_homogenea','um_homogenea']] = fproductos.swifter.apply(lambda x: homogenea(float(x['cantidad_depurada']),str(x['um_depurada'])),axis=1, result_type='expand')
+	fproductos[['factor_homogenea','um_homogenea']] = fproductos.apply(lambda x: homogenea(x['cantidad_depurada'],x['um_depurada']),axis=1, result_type='expand')
 
 	# Creamos variables Dummies que identifiquen el tipo de Unidad de Medida
 	fproductos=pd.get_dummies(fproductos, columns=['um_homogenea'])
@@ -338,7 +355,7 @@ def unionDatos(p_df_precios,p_df_productos,p_df_sucursales):
 	dfNew.loc[dfNew['nombre'].str.contains('\\b3x2\\b|\\b2x1\\b|\\b4x3\\b|\\bPaga\\b|\\bLleva\\b|\\bpack\\b', na=False),'unidad']='pack'
 
 	#Creamos dos nuevas columnas denominadas PrecioXUnidad y nuevaUnidad para los valores "homogeneizados"        
-	dfNew[['PrecioXUnidad','nuevaUnidad']] = dfNew.swifter.apply(lambda x: precioXUnidad(x['cantidad'],x['unidad'],x['precio']),axis=1, result_type='expand')	
+	dfNew[['PrecioXUnidad','nuevaUnidad']] = dfNew.apply(lambda x: precioXUnidad(x['cantidad'],x['unidad'],x['precio']),axis=1, result_type='expand')	
 
 	# Obtenemos un dataset de medias, desvios, mediana, q1 y q3 para fecha y producto (Agregue la mediana para poder di podía realizar el metodo Modified Z-score, pero es más efectivo el Z-score ). las columnas q1 y q3 sirven para calcular IRQ
 	df_product_mean_std=dfNew[['fecha','producto_id','PrecioXUnidad']].groupby(['fecha','producto_id'],as_index=False).agg(['mean','median',pop_std,q_at(0.25) ,q_at(0.75)])
