@@ -18,12 +18,19 @@ from collections import Counter
 import swifter
 import chardet
 import requests
+import logging
+logging.basicConfig(level = logging.DEBUG,
+                    format='%(asctime)s-%(name)s-%(levelname)s: %(message)s',
+                    handlers=[logging.FileHandler('divide.log'), 
+                               logging.StreamHandler()])
+logger = logging.getLogger(__name__)
 
 pd.set_option('display.max_columns', 150)
 pd.set_option('display.max_rows', 150)
 pd.set_option('max_colwidth', 151)
 pd.set_option('display.float_format', lambda x: '%.2f' % x)
 
+variable_top_frecuencia = 200
 
 def rename(newname):
     def decorator(f):
@@ -86,13 +93,15 @@ def homogenea (cantidad: float,unidad: str):
         return round (1000/cantidad, 3), 'lt'
 
 # Definimos una función para contar palabras
-word_count = {}
+
 def count_word(list_word):
-    for item in list_word:
-        if item in word_count:
-            word_count[item] = word_count.get(item) + 1
-    else:
-        word_count[item] = 1      
+	word_count = {}
+	for item in range(len(list_word)):
+		if item in word_count:
+			word_count[item] = word_count.get(item) + 1
+		else:
+			word_count[item] = 1
+	return word_count
 
 #Creamos la función que crea dummies
 def valor_dummie (valor):
@@ -118,6 +127,8 @@ def carga_precios():
 	for df, fecha in zip(lista_df_px, fecha_px):
 	    df['fecha'] = fecha
 	    fprecios = pd.concat([fprecios,df])
+	
+	logger.info('Finish precios')
 
 	return fprecios
  
@@ -125,6 +136,8 @@ def carga_productos():
 	# Cargamos los txt de productos para tener la información de cada campo
 	producto_url = 'https://raw.githubusercontent.com/solujan/mentoria_2020/master/raw_dataset/productos.csv'
 	fproductos = pd.read_csv(producto_url)
+	
+	fproductos = drop_nan_productos(fproductos)
 
 	fproductos.set_index('id')
 
@@ -170,46 +183,40 @@ def carga_productos():
 	# Creamos variables Dummies que identifiquen el tipo de Unidad de Medida
 	fproductos=pd.get_dummies(fproductos, columns=['um_homogenea'])
 
+	#logger.info('Data_frame:{info}'.format(info=fproductos.info()))
+	
+
+	#Sacamos la marca del nombre depurado.
+	fproductos["nombre_depurado"] = fproductos.apply(lambda x: replace_substring(x), axis=1)
+
 	# Le quitamos las cantidades, unidad de medida, caracteres especiales y preposiciones
-	delete_words='\\d|\\bde\\b|\\ben\\b|\\bla\\b|\\bque\\b|\\b\\de\\b\\|\\b\\a\\b\\|\\b\\sobre\\b\\|\\b\\sin\\b\\|\\by\\b|\\bun\\b|\\bkg\\b|\\bgr\\b|\\bml\\b|\\bcc\\b|\\blt\\b|\\bmt\\b|\\bante\\b|\\bbajo\\b|\\bcabe\\b|\\bcon\\b|\\bcontra\\b|\\bdesde\\b|\\bdurante\\b|\\bentre\\b|\\bhacia\\b|\\bhasta\\b|\\bmediante\\b|\\bpara\\b|\\bsegún\\b|\\bsegun\\b|\\bsi\\b|\\bso\\b|\\bsobre\\b|\\btras\\b|\\bversus\\b|\\bvía\\b|\\bvia\\b|[^\w ]'
+	delete_words='\\d|\\bde\\b|\\bx\\b|\\bn\\b|\\bdel\\b|\\ben\\b|\\ba\\b|\\by\\b|\\bal\\b|\\bsin\\b|\\bla\\b|\\bque\\b|\\b\\de\\b\\|\\b\\a\\b\\|\\b\\sobre\\b\\|\\b\\sin\\b\\|\\by\\b|\\bun\\b|\\bkg\\b|\\bgr\\b|\\bpack\\b|\\bcm\\b|\\bml\\b|\\bcc\\b|\\blt\\b|\\bmt\\b|\\bante\\b|\\bbajo\\b|\\bcabe\\b|\\bcon\\b|\\bcontra\\b|\\bdesde\\b|\\bdurante\\b|\\bentre\\b|\\bhacia\\b|\\bhasta\\b|\\bmediante\\b|\\bpara\\b|\\bsegún\\b|\\bsegun\\b|\\bsi\\b|\\bso\\b|\\bsobre\\b|\\btras\\b|\\bversus\\b|\\bvía\\b|\\bvia\\b|[^\w ]'
 	fproductos['nombre_depurado']=fproductos.nombre_depurado.str.replace(repl='',pat=(delete_words))	
 
-	word_count = {}
-	fproductos['nombre_depurado'].apply(word_tokenize).apply(lambda x: count_word(str(x))
 
-	df=pd.DataFrame(data=[word_count.keys(), word_count.values()])
-	df=df.T
-	df.columns=['token', 'count']
-	df=df.sort_values('count', ascending=False).reset_index(drop=True)
+	txt = fproductos['nombre_depurado'].str.lower().str.replace(r'\|', ' ').str.cat(sep=' ')
+	words = nltk.tokenize.word_tokenize(txt)
+	word_dist = nltk.FreqDist(words)
+	dic_palabras_frecuentes = dict(word_dist.most_common(variable_top_frecuencia))
 
-	df['cum_sum']=df['count'].cumsum()
-	indice=[]
-	for i in range(len(df)):
-	    if df.loc[i,'cum_sum']<df['count'].sum()*0.2:
-	        pass
-	    else:
-	        indice=i; break	
+	lista_frecuente = list(dic_palabras_frecuentes.keys())
 
-	lista_frecuente = df.token[0:indice]
-	lista_dummies=[None]*len(lista_frecuente)
-	for i in range(len(lista_frecuente)):
-		lista_dummies[i]='dummy_'+ lista_frecuente[i]
-
-	# Creamos las dummies para todos los productos frecuentes.
+	#Creamos las dummies para todos los productos frecuentes.
 	for i in lista_frecuente:
 	    fproductos['dummy_'+i]=fproductos['nombre_depurado'].str.contains('\\b'+ i + '\\b',regex=True).apply(valor_dummie)    	
 
 	fproductos['palabras_nombre']=fproductos['nombre_depurado'].apply(word_tokenize).apply(len)
 
+	filas, colum = fproductos.filter(regex='dummy').shape
+
 	fproductos['total_dummies']=fproductos.filter(regex='dummy',axis=1).iloc[:, -(colum+1):-2].sum(axis=1)
 
-	fproductos['otras_palabras']=np.where(fproductos['palabras_nombre'] > fproductos['total_dummies'], 1, 0)	
+	fproductos['otras_palabras']=np.where(fproductos['palabras_nombre'] > fproductos['total_dummies'], 1, 0)
 
 	#Generamos un diccionario con las 30 marcas con mas frecuencia 
 	data = fproductos.marca.value_counts()
 	dict_marcas_frecuentas = dict(data[:30])
-	dict_marcas_frecuentas	
-
+	
 	#Genero la columna de marcas mas frecuentes 
 	fproductos['marcas_frecuentes'] = fproductos.marca.apply(lambda x: x if x in dict_marcas_frecuentas.keys() else 'otras')
 
@@ -219,6 +226,8 @@ def carga_productos():
 
 	#Correjimos las columnas 
 	fproductos.columns = fproductos.columns.str.replace(' ','_',regex=True)
+
+	logger.info('Finish productos')
 
 	return fproductos
 
@@ -267,14 +276,18 @@ def carga_sucursales():
 	sucursales_d=pd.get_dummies(fsucursales, columns=['nom_provincia','sucursalTipo'])
 	sucursales_new = pd.merge(fsucursales,sucursales_d)
 
-	return fsucursales
+	logger.info('Finish Sucursales')
+
+	return sucursales_new
 
 def drop_nan_precios(p_df_precios):
 	p_df_precios=p_df_precios.dropna()
+	logger.info('Drop Nan precios')
 	return p_df_precios
 
 def drop_nan_productos(p_df_productos):
 	p_df_productos=p_df_productos.dropna(subset=['marca'])
+	logger.info('Drop Nan productos')
 	return p_df_productos
 
 def consistenciaDatos(p_df_precios,p_df_productos,p_df_sucursales):
@@ -286,6 +299,8 @@ def consistenciaDatos(p_df_precios,p_df_productos,p_df_sucursales):
 	df_precios_suc = p_df_precios.set_index('sucursal_id')
 	df_sucursales = p_df_sucursales.set_index('id')
 	p_df_precios=p_df_precios[df_precios_suc.index.isin(df_sucursales.index)]
+
+	logger.info('Finish consistencia de datos')
 
 	return p_df_precios
 
@@ -337,6 +352,8 @@ def unionDatos(p_df_precios,p_df_productos,p_df_sucursales):
 	
 	dfNew=pd.merge(dfNew,p_df_sucursales,left_on='sucursal_id',right_on='id',how='inner').drop(columns = 'id')
 
+	logger.info('Finish unión de DataFrames')
+
 	return dfNew
 
 def outlier(p_df):
@@ -346,25 +363,28 @@ def outlier(p_df):
 	#Sacamos los outliers utilizando IQR
 	r_df=r_df[~((r_df.PrecioXUnidad < (r_df.q1 - 1.5 * r_df.IQR)) | (r_df.PrecioXUnidad > (r_df.q3 + 1.5 * r_df.IQR)))]
 
+	logger.info('Delete of Outliers')
+
 	return r_df
 
 #función definida para reemplazar la marca del nombre, sabiendo que no tienen que haber nulos
 def replace_substring(x):
     return (
-         x["nombre"].replace(x["marca"], "")
-    )	
+         x["nombre_depurado"].replace(x["marca"], "")
+    )
 
 def optimizarDatos(p_df):
-
 	#Dejar solo las columnas necesarias en el dataset
-    p_df = p_df[['fecha','sucursal_id', 'sucursalNombre','sucursalTipo','producto_id', 'nombre', 'marca','region','nom_provincia','localidad','cantidad','unidad','nuevaUnidad','precio','PrecioXUnidad','media','desvio']]
-
-    #Renombrar columnas
-    p_df.rename(columns={'PrecioXUnidad':'precioXUnidad'},inplace=True)
-
-    p_df['fecha'] = pd.to_datetime(p_df['fecha'], format="%Y%m%d")    
-
-    return p_df
+	#p_df = p_df[['fecha','sucursal_id', 'sucursalNombre','sucursalTipo','producto_id', 'nombre', 'marca','region','nom_provincia','localidad','cantidad','unidad','nuevaUnidad','precio','PrecioXUnidad','media','desvio']]
+	
+	#Renombrar columnas
+	p_df.rename(columns={'PrecioXUnidad':'precioXUnidad'},inplace=True)
+	
+	p_df['fecha'] = pd.to_datetime(p_df['fecha'], format="%Y%m%d")
+	
+	logger.info('Finish Optimizar datos')
+	
+	return p_df
 
 def generarMeta():
 	meta = {"fecha": "fecha de precios de producto informado en la pagina de precios claros"
@@ -385,7 +405,9 @@ def generarMeta():
 	        ,"media" : "Media estadistica por fecha y producto_-id"
 	        ,"desvio" : "Desvio poblacional por fecha y producto_id"
 	        ,"Created": "13/07/2020"}
-	dfMeta = pd.DataFrame.from_dict(meta, orient='index').rename(columns = {0:'Descripción'})    
+	dfMeta = pd.DataFrame.from_dict(meta, orient='index').rename(columns = {0:'Descripción'})  
+
+	logger.info('Add metadata')  
 
 	return dfMeta
 
@@ -405,12 +427,17 @@ def obtenerPrecioRelativo(p_df,p_id_producto):
 	datasetPR=pd.merge(left=p_df,right=dfbn,how='inner',left_on=['fecha','nom_provincia'],right_on =['fecha','nom_provincia'])
 	datasetPR['precioRelativo']=datasetPR.precioXUnidad/datasetPR.bienNumerico	
 
+	logger.info('Finish precio relativo')
+
 	return datasetPR
 
 def guardarArchivo(p_df):
-	pd.to_pickle(p_df, 'sucursal_producto_precio.pkl', compression="zip")
+	pd.to_pickle(p_df, 'sucursal_producto_precio.pkl')#, compression="zip")
+	logger.info('Finish guardado de archivo pkl')
 
-
+def guardarArchivo_csv(p_df):
+	p_df.to_csv('sucursal_producto_precio.csv',sep='|',index=False)
+	logger.info('Finish guardado de archivo csv')
 
 
 def main():
@@ -422,7 +449,7 @@ def main():
 
     #Tratamiento de valores faltantes
 	precios=drop_nan_precios(precios)
-	productos=drop_nan_productos(productos)
+	#productos=drop_nan_productos(productos)
 
     #Consistencia de datos
 	precios=consistenciaDatos(precios,productos,sucursales)
@@ -443,11 +470,16 @@ def main():
 	idProducto='7793100111563'
 	datasetNew=obtenerPrecioRelativo(datasetNew,idProducto)
 
-	print("Total filas Finales", datasetNew.shape)
+	logger.info("Total filas Finales: {a}".format(a=datasetNew.shape))
+
+	#Guardar dataset en archivo en pkl
+	guardarArchivo(datasetNew)
 
 	#Guardar dataset en archivo
-	guardarArchivo(datasetNew)
+	guardarArchivo_csv(datasetNew)
+
 
 if __name__ == "__main__":
     main()
+
 
